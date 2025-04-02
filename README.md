@@ -31,7 +31,7 @@ zkHolos is a prototype implementation of a privacy-preserving e-voting system th
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/zkHolos.git
+git clone https://github.com/ihbobul/zkHolos.git
 cd zkHolos
 ```
 
