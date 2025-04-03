@@ -1,0 +1,16 @@
+1,3,0,main.regionHash
+2,4,0,main.electionId
+3,5,0,main.voterAddress
+4,6,0,main.region
+5,7,0,main.isRegistered
+6,8,0,main.isEligible
+7,1,0,main.valid
+8,2,0,main.commitment
+9,7,1,main.regCheck.in[0]
+10,13,1,main.regCheck.in[1]
+11,9,1,main.regCheck.out
+12,11,1,main.regCheck.diff
+13,8,2,main.eligCheck.in[0]
+14,14,2,main.eligCheck.in[1]
+15,10,2,main.eligCheck.out
+16,12,2,main.eligCheck.diff

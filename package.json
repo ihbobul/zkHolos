@@ -1,17 +1,36 @@
 {
   "name": "zkholos",
   "version": "1.0.0",
+  "description": "Zero-knowledge proof based voting system",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "hardhat test",
+    "compile": "hardhat compile",
+    "circuits:compile": "ts-node scripts/circuits/setupCircuit.ts compile",
+    "circuits:pot": "ts-node scripts/circuits/setupCircuit.ts pot",
+    "circuits:setup": "ts-node scripts/circuits/setupCircuit.ts setup",
+    "circuits:generate-proof": "ts-node scripts/circuits/generateProof.ts",
+    "circuits:verify-proof": "ts-node scripts/circuits/verifyProof.ts",
+    "circuits:setup-all": "npm run circuits:compile && npm run circuits:pot && npm run circuits:setup"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "dependencies": {
+    "snarkjs": "^0.7.0"
+  },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@openzeppelin/contracts": "^4.9.3",
-    "hardhat": "^2.22.19"
+    "@types/chai": "^4.3.11",
+    "@types/jest": "^29.5.14",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.11.0",
+    "chai": "^4.3.10",
+    "ethers": "^6.13.5",
+    "hardhat": "^2.22.19",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   }
 }

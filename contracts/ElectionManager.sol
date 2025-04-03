@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "./VotingContract.sol";
 import "./VoterRegistration.sol";
+import "./VoterEligibilityVerifier.sol";
 
 contract ElectionManager is Ownable, Initializable, Pausable {
     enum ElectionPhase {
@@ -23,20 +24,37 @@ contract ElectionManager is Ownable, Initializable, Pausable {
         bool isPaused;
     }
 
+    struct Election {
+        string name;
+        uint256 startTime;
+        uint256 endTime;
+        bool isActive;
+        uint256 totalVotes;
+    }
+
     VotingContract public votingContract;
     VoterRegistration public voterRegistration;
-    uint256 public electionCount;
+    VoterEligibilityVerifier public verifier;
     mapping(uint256 => ElectionState) public electionStates;
     mapping(uint256 => mapping(address => bool)) public eligibleVoters;
+    mapping(uint256 => Election) public elections;
+    uint256 public electionCount;
 
     event ElectionManagerInitialized(address votingContract, address voterRegistration);
     event ElectionPhaseChanged(uint256 indexed electionId, ElectionPhase newPhase);
     event EligibleVotersUpdated(uint256 indexed electionId, uint256 count);
     event ElectionPaused(uint256 indexed electionId);
     event ElectionResumed(uint256 indexed electionId);
+    event ElectionCreated(uint256 indexed electionId, string name, uint256 startTime, uint256 endTime);
+    event VoteCast(uint256 indexed electionId, address indexed voter);
+    event ElectionEnded(uint256 indexed electionId);
+    event DebugVoteAttempt(uint256 indexed electionId, address indexed voter, uint256 candidateId, string region, bool isEligible, bool isActive, bool isPaused);
 
-    constructor() {
+    constructor(address _votingContract, address _voterRegistration, address _verifier) {
         _transferOwnership(msg.sender);
+        votingContract = VotingContract(_votingContract);
+        voterRegistration = VoterRegistration(_voterRegistration);
+        verifier = VoterEligibilityVerifier(_verifier);
     }
 
     function initialize(
@@ -57,20 +75,38 @@ contract ElectionManager is Ownable, Initializable, Pausable {
             );
             votingContract.transferOwnership(address(this));
         }
+
+        // Set the ZKP verifier after ownership transfer
+        votingContract.setZKPVerifier(address(verifier));
     }
 
     function createElection(
-        string memory _title,
-        string memory _description,
+        string memory _name,
         uint256 _startTime,
         uint256 _endTime,
         string[] memory _regions
-    ) external onlyOwner whenNotPaused returns (uint256) {
-        require(_endTime > _startTime, "End time must be after start time");
+    ) public onlyOwner {
         require(_startTime > block.timestamp, "Start time must be in the future");
+        require(_endTime > _startTime, "End time must be after start time");
+        require(_regions.length > 0, "At least one region must be specified");
 
-        electionCount++;
-        uint256 electionId = electionCount;
+        // Create election in VotingContract first to get its ID
+        uint256 electionId = votingContract.createElection(
+            _name,
+            "",
+            _startTime,
+            _endTime,
+            _regions
+        );
+
+        // Use the same ID from VotingContract
+        electionCount = electionId;
+
+        Election storage election = elections[electionId];
+        election.name = _name;
+        election.startTime = _startTime;
+        election.endTime = _endTime;
+        election.isActive = true;
 
         electionStates[electionId] = ElectionState({
             id: electionId,
@@ -81,16 +117,7 @@ contract ElectionManager is Ownable, Initializable, Pausable {
             isPaused: false
         });
 
-        // Create election in VotingContract
-        votingContract.createElection(
-            _title,
-            _description,
-            _startTime,
-            _endTime,
-            _regions
-        );
-
-        return electionId;
+        emit ElectionCreated(electionId, _name, _startTime, _endTime);
     }
 
     function addCandidate(
@@ -114,7 +141,7 @@ contract ElectionManager is Ownable, Initializable, Pausable {
         address[] memory voters = voterRegistration.getRegisteredVoters();
         
         for (uint256 i = 0; i < voters.length; i++) {
-            if (voterRegistration.isVoterEligible(voters[i])) {
+            if (voterRegistration.isEligible(voters[i])) {
                 eligibleVoters[_electionId][voters[i]] = true;
                 count++;
             }
@@ -155,7 +182,6 @@ contract ElectionManager is Ownable, Initializable, Pausable {
 
         state.isPaused = true;
         votingContract.pauseElection(_electionId);
-        _pause();
         emit ElectionPaused(_electionId);
     }
 
@@ -168,7 +194,6 @@ contract ElectionManager is Ownable, Initializable, Pausable {
 
         state.isPaused = false;
         votingContract.resumeElection(_electionId);
-        _unpause();
         emit ElectionResumed(_electionId);
     }
 
@@ -212,5 +237,104 @@ contract ElectionManager is Ownable, Initializable, Pausable {
         require(state.phase == ElectionPhase.Registration, "Election not in registration phase");
         
         votingContract.updateCandidateStatus(_electionId, _candidateId, _isActive);
+    }
+
+    function castVoteWithProof(
+        uint256 _electionId,
+        uint256 _candidateId,
+        uint256[2] memory a,
+        uint256[2][2] memory b,
+        uint256[2] memory c,
+        uint256[2] memory input
+    ) public {
+        ElectionState storage state = electionStates[_electionId];
+        require(state.phase == ElectionPhase.Active, "Election not active");
+        require(!state.isPaused, "Election is paused");
+        
+        bool isEligible = voterRegistration.isEligible(msg.sender);
+        require(isEligible, "Voter not eligible");
+        
+        bytes32 commitment = keccak256(abi.encodePacked(msg.sender, _electionId));
+        require(verifier.verifyProof(
+            a, 
+            b, 
+            c, 
+            input,
+            _electionId,
+            commitment
+        ), "Invalid proof");
+
+        // Get voter's region from voter info
+        (string memory voterRegion,,, ) = voterRegistration.getVoterInfo(msg.sender);
+        
+        // Cast vote in VotingContract using castVoteWithProof
+        try votingContract.castVoteWithProof(
+            _electionId,
+            _candidateId,
+            a,
+            b,
+            c,
+            input,
+            commitment,
+            voterRegion,
+            msg.sender
+        ) {
+            emit DebugVoteAttempt(_electionId, msg.sender, _candidateId, voterRegion, isEligible, state.phase == ElectionPhase.Active, state.isPaused);
+            emit VoteCast(_electionId, msg.sender);
+        } catch {
+            revert("Failed to cast vote");
+        }
+    }
+
+    function castVote(
+        uint256 _electionId,
+        uint256 _candidateId,
+        uint256[2] memory a,
+        uint256[2][2] memory b,
+        uint256[2] memory c,
+        uint256[2] memory input
+    ) public {
+        return castVoteWithProof(_electionId, _candidateId, a, b, c, input);
+    }
+
+    function hasVoted(uint256 _electionId, address _voter) public view returns (bool) {
+        return votingContract.hasVoted(_electionId, _voter);
+    }
+
+    function getElectionInfo(uint256 _electionId)
+        public
+        view
+        returns (
+            string memory name,
+            uint256 startTime,
+            uint256 endTime,
+            bool isActive,
+            uint256 totalVotes
+        )
+    {
+        Election storage election = elections[_electionId];
+        return (
+            election.name,
+            election.startTime,
+            election.endTime,
+            election.isActive,
+            election.totalVotes
+        );
+    }
+
+    function getEligibleVoterCount() public view returns (uint256) {
+        address[] memory voters = voterRegistration.getRegisteredVoters();
+        uint256 count = 0;
+        for (uint256 i = 0; i < voters.length; i++) {
+            if (voterRegistration.isEligible(voters[i])) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    function setVotingContractZKPVerifier(address _verifier) external onlyOwner {
+        require(_verifier != address(0), "Invalid verifier address");
+        votingContract.setZKPVerifier(_verifier);
     }
 } 
