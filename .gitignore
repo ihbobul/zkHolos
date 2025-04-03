@@ -2,6 +2,7 @@
 cache/
 artifacts/
 typechain-types/
+build/
 
 # Node.js
 node_modules/
@@ -39,3 +40,42 @@ ignition/deployments/chain-31337
 
 # Cursor IDE files
 .cursor/
+
+# ZKP circuit build files
+build/circuits/*.r1cs
+build/circuits/*.sym
+build/circuits/*.wasm
+build/circuits/*.zkey
+build/circuits/*.ptau
+build/circuits/*.dat
+build/circuits/*.cpp
+build/circuits/pot*
+build/circuits/witness*
+build/circuits/proof*
+build/circuits/public*
+build/circuits/verification_key.json
+
+# Private keys and sensitive data
+**/private_key*
+**/mnemonic*
+**/secret*
+**/*.key
+**/*.pem
+**/credentials*
+
+# Circuit files
+circuits/
+
+
+# Local development files
+local/
+temp/
+tmp/
+
+# Test artifacts
+test-results/
+.nyc_output/
+
+# Debug logs
+debug/
+*.log

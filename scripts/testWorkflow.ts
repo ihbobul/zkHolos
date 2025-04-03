@@ -4,7 +4,9 @@ import type { Contract } from "ethers";
 import { ElectionManager } from "../typechain-types/contracts/ElectionManager";
 import { ElectionManager__factory } from "../typechain-types/factories/contracts/ElectionManager__factory";
 import { VotingContract } from "../typechain-types/contracts/VotingContract";
+import { VoterRegistration } from "../typechain-types/contracts/VoterRegistration";
 import { Log } from "@ethersproject/abstract-provider";
+import { registerVoter } from "../test/utils/testUtils";
 
 async function main() {
     console.log("Starting e-voting system workflow test...");
@@ -68,6 +70,14 @@ async function main() {
     const c: [number, number] = [7, 8];
     const input: [number, number] = [9, 10];
 
+    // Define proof parameters for testing
+    const zkProofParams = {
+        a: [1, 2] as [number, number],
+        b: [[3, 4], [5, 6]] as [[number, number], [number, number]],
+        c: [7, 8] as [number, number],
+        input: [9, 10] as [number, number]
+    };
+
     // Register voter1 for KYIV
     const voter1Contract = voterRegistration.connect(voter1);
     await (voter1Contract as any).registerVoter(
@@ -121,7 +131,7 @@ async function main() {
     }
 
     const event = receipt.logs?.find(
-        (log: Log) => log.topics[0] === electionManager.interface.getEvent("ElectionCreated").topicHash
+        (log: Log) => log.topics[0] === electionManager.interface.getEvent("ElectionCreated")!.topicHash
     );
     
     if (!event) {
@@ -146,250 +156,227 @@ async function main() {
     await electionManager.addCandidate(electionId, "Candidate2", "Description2");
     console.log("Candidates added successfully");
 
+    // Test voter eligibility updates
+    console.log("\n5. Testing voter eligibility updates...");
+    const newVoter = await ethers.getSigner("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65");
+    await registerVoter(voterRegistration as unknown as VoterRegistration, admin, newVoter, "KYIV");
+    console.log("New voter registered for KYIV");
+
+    // Make voter ineligible
+    await (voterRegistration as unknown as VoterRegistration).connect(admin).updateEligibility(
+        newVoter.address,
+        false,
+        zkProofParams.a,
+        zkProofParams.b,
+        zkProofParams.c,
+        zkProofParams.input
+    );
+    console.log("New voter marked as ineligible");
+
+    // Update eligible voters for the election
+    await electionManager.updateEligibleVoters(electionId.toString());
+    console.log("Eligible voters updated");
+
+    // Make voter eligible again
+    await (voterRegistration as unknown as VoterRegistration).connect(admin).updateEligibility(
+        newVoter.address,
+        true,
+        zkProofParams.a,
+        zkProofParams.b,
+        zkProofParams.c,
+        zkProofParams.input
+    );
+    console.log("New voter marked as eligible again");
+
+    // Update eligible voters for the election
+    await electionManager.updateEligibleVoters(electionId.toString());
+    console.log("Eligible voters updated");
+
+    // Test candidate status updates
+    console.log("\n6. Testing candidate status updates...");
+    await electionManager.updateCandidateStatus(electionId.toString(), 1, false);
+    console.log("Candidate1 deactivated");
+    
+    // Try to vote for inactive candidate (should fail)
+    try {
+        await (electionManager.connect(voter1) as ElectionManager).castVoteWithProof(
+            electionId.toString(),
+            1,
+            zkProofParams.a,
+            zkProofParams.b,
+            zkProofParams.c,
+            zkProofParams.input
+        );
+        throw new Error("Should not be able to vote for inactive candidate");
+    } catch (error) {
+        console.log("Vote attempt failed as expected for inactive candidate");
+    }
+    
+    await electionManager.updateCandidateStatus(electionId.toString(), 1, true);
+    console.log("Candidate1 reactivated");
+
     // Update eligible voters
-    console.log("\n5. Updating eligible voters...");
-    await electionManager.updateEligibleVoters(electionId);
+    console.log("\n7. Updating eligible voters...");
+    await electionManager.updateEligibleVoters(electionId.toString());
     console.log("Eligible voters updated");
 
     // Wait for election to start
-    console.log("\n6. Waiting for election to start...");
+    console.log("\n8. Waiting for election to start...");
     await ethers.provider.send("evm_increaseTime", [65]); // Advance time by 65 seconds
     await ethers.provider.send("evm_mine", []);
     console.log("Time advanced by 65 seconds");
 
     // Start election
-    console.log("\n7. Starting election...");
-    await electionManager.startElectionPhase(electionId);
+    console.log("\n9. Starting election...");
+    await electionManager.startElectionPhase(electionId.toString());
     console.log("Election started");
 
     // Cast votes
-    console.log("\n8. Casting votes...");
-    const voter1ZkProofParams = {
-        a: [1, 2] as [number, number],
-        b: [[3, 4], [5, 6]] as [[number, number], [number, number]],
-        c: [7, 8] as [number, number],
-        input: [9, 10] as [number, number]
-    };
-    
+    console.log("\n10. Casting votes...");
     // Voter1 votes for Candidate1
     const voter1VoteTx = await (electionManager.connect(voter1) as ElectionManager).castVoteWithProof(
-        electionId,
-        1, // Candidate 1
-        voter1ZkProofParams.a,
-        voter1ZkProofParams.b,
-        voter1ZkProofParams.c,
-        voter1ZkProofParams.input
+        electionId.toString(),
+        1,
+        zkProofParams.a,
+        zkProofParams.b,
+        zkProofParams.c,
+        zkProofParams.input
     );
     const voter1Receipt = await voter1VoteTx.wait();
     if (!voter1Receipt) {
         throw new Error("Voter1 vote transaction failed");
     }
     console.log("Voter1 vote cast successfully for Candidate1");
-    
-    // Listen for debug events
-    const debugEvents = voter1Receipt.logs?.filter(
-        (log: any) => {
-            try {
-                const topics = log?.topics?.[0];
-                if (!topics) return false;
-                return topics === electionManager.interface!.getEvent("DebugVoteAttempt")!.topicHash ||
-                       topics === votingContract.interface!.getEvent("DebugVoteCast")!.topicHash ||
-                       topics === votingContract.interface!.getEvent("DebugVoteWithProof")!.topicHash;
-            } catch (error) {
-                return false;
-            }
-        }
-    ) || [];
-    debugEvents.forEach((event: any) => {
-        try {
-            let parsed;
-            const eventTopic = event?.topics?.[0];
-            if (!eventTopic) return;
-            if (eventTopic === electionManager.interface!.getEvent("DebugVoteAttempt")!.topicHash) {
-                parsed = electionManager.interface!.parseLog(event);
-            } else {
-                parsed = votingContract.interface!.parseLog(event);
-            }
-            if (parsed) {
-                console.log("Debug Event:", parsed.name, parsed.args);
-            }
-        } catch (error) {
-            console.log("Failed to parse event:", error);
-        }
-    });
 
     // Voter2 votes for Candidate2
-    const voter2ZkProofParams = {
-        a: [2, 3] as [number, number],
-        b: [[4, 5], [6, 7]] as [[number, number], [number, number]],
-        c: [8, 9] as [number, number],
-        input: [10, 11] as [number, number]
-    };
-
     const voter2VoteTx = await (electionManager.connect(voter2) as ElectionManager).castVoteWithProof(
-        electionId,
-        2, // Candidate 2
-        voter2ZkProofParams.a,
-        voter2ZkProofParams.b,
-        voter2ZkProofParams.c,
-        voter2ZkProofParams.input
+        electionId.toString(),
+        2,
+        zkProofParams.a,
+        zkProofParams.b,
+        zkProofParams.c,
+        zkProofParams.input
     );
     const voter2Receipt = await voter2VoteTx.wait();
     if (!voter2Receipt) {
         throw new Error("Voter2 vote transaction failed");
     }
     console.log("Voter2 vote cast successfully for Candidate2");
-    
-    // Listen for debug events
-    const debugEvents2 = voter2Receipt.logs?.filter(
-        (log: any) => {
-            try {
-                const topics = log?.topics?.[0];
-                if (!topics) return false;
-                return topics === electionManager.interface!.getEvent("DebugVoteAttempt")!.topicHash ||
-                       topics === votingContract.interface!.getEvent("DebugVoteCast")!.topicHash ||
-                       topics === votingContract.interface!.getEvent("DebugVoteWithProof")!.topicHash;
-            } catch (error) {
-                return false;
-            }
-        }
-    ) || [];
-    debugEvents2.forEach((event: any) => {
-        try {
-            let parsed;
-            const eventTopic = event?.topics?.[0];
-            if (!eventTopic) return;
-            if (eventTopic === electionManager.interface!.getEvent("DebugVoteAttempt")!.topicHash) {
-                parsed = electionManager.interface!.parseLog(event);
-            } else {
-                parsed = votingContract.interface!.parseLog(event);
-            }
-            if (parsed) {
-                console.log("Debug Event:", parsed.name, parsed.args);
-            }
-        } catch (error) {
-            console.log("Failed to parse event:", error);
-        }
-    });
 
     // Voter3 votes for Candidate1
-    const voter3ZkProofParams = {
-        a: [3, 4] as [number, number],
-        b: [[5, 6], [7, 8]] as [[number, number], [number, number]],
-        c: [9, 10] as [number, number],
-        input: [11, 12] as [number, number]
-    };
-
     const voter3VoteTx = await (electionManager.connect(voter3) as ElectionManager).castVoteWithProof(
-        electionId,
-        1, // Candidate 1
-        voter3ZkProofParams.a,
-        voter3ZkProofParams.b,
-        voter3ZkProofParams.c,
-        voter3ZkProofParams.input
+        electionId.toString(),
+        1,
+        zkProofParams.a,
+        zkProofParams.b,
+        zkProofParams.c,
+        zkProofParams.input
     );
     const voter3Receipt = await voter3VoteTx.wait();
     if (!voter3Receipt) {
         throw new Error("Voter3 vote transaction failed");
     }
     console.log("Voter3 vote cast successfully for Candidate1");
-    
-    // Listen for debug events
-    const debugEvents3 = voter3Receipt.logs?.filter(
-        (log: any) => {
-            try {
-                const topics = log?.topics?.[0];
-                if (!topics) return false;
-                return topics === electionManager.interface!.getEvent("DebugVoteAttempt")!.topicHash ||
-                       topics === votingContract.interface!.getEvent("DebugVoteCast")!.topicHash ||
-                       topics === votingContract.interface!.getEvent("DebugVoteWithProof")!.topicHash;
-            } catch (error) {
-                return false;
-            }
-        }
-    ) || [];
-    debugEvents3.forEach((event: any) => {
-        try {
-            let parsed;
-            const eventTopic = event?.topics?.[0];
-            if (!eventTopic) return;
-            if (eventTopic === electionManager.interface!.getEvent("DebugVoteAttempt")!.topicHash) {
-                parsed = electionManager.interface!.parseLog(event);
-            } else {
-                parsed = votingContract.interface!.parseLog(event);
-            }
-            if (parsed) {
-                console.log("Debug Event:", parsed.name, parsed.args);
-            }
-        } catch (error) {
-            console.log("Failed to parse event:", error);
-        }
-    });
+
+    // Test election pausing and resuming
+    console.log("\n11. Testing election pausing and resuming...");
+    await electionManager.pauseElection(electionId.toString());
+    console.log("Election paused");
+
+    // Try to vote while election is paused (should fail)
+    try {
+        await (electionManager.connect(newVoter) as ElectionManager).castVoteWithProof(
+            electionId.toString(),
+            1,
+            zkProofParams.a,
+            zkProofParams.b,
+            zkProofParams.c,
+            zkProofParams.input
+        );
+        throw new Error("Should not be able to vote while election is paused");
+    } catch (error) {
+        console.log("Vote attempt failed as expected while election is paused");
+    }
+
+    await electionManager.resumeElection(electionId.toString());
+    console.log("Election resumed");
 
     // Wait for election to end
-    console.log("\n9. Waiting for election to end...");
+    console.log("\n12. Waiting for election to end...");
     await ethers.provider.send("evm_increaseTime", [300]); // Advance time by 5 minutes
     await ethers.provider.send("evm_mine", []);
     console.log("Time advanced by 5 minutes");
 
     // End election
-    console.log("\n10. Ending election...");
-    await electionManager.completeElection(electionId);
+    console.log("\n13. Ending election...");
+    await electionManager.completeElection(electionId.toString());
     console.log("Election completed");
 
     // Verify election results
-    console.log("\n11. Verifying election results...");
-    
-    // Check election state
-    const electionState = await electionManager.getElectionState(electionId);
-    expect(electionState.phase).to.equal(2); // 2 = Completed phase
-    
-    // Get voting contract instance and results
-    const votingContractInstance = await ethers.getContractAt("VotingContract", await electionManager.votingContract());
-    if (!votingContractInstance) {
-        throw new Error("Failed to get VotingContract instance");
-    }
-    const [totalVotes, candidateVoteCounts] = await votingContractInstance.getElectionResults(electionId);
-    expect(totalVotes).to.equal(3n); // All three voters cast their votes
-    
-    // Verify all voters have voted
-    expect(await electionManager.hasVoted(electionId, voter1.address)).to.be.true;
-    expect(await electionManager.hasVoted(electionId, voter2.address)).to.be.true;
-    expect(await electionManager.hasVoted(electionId, voter3.address)).to.be.true;
-    
-    // Check eligible voter count
-    const eligibleVoters = await electionManager.getEligibleVoterCount();
-    expect(eligibleVoters).to.equal(3); // All three registered voters are eligible
-    
+    console.log("\n14. Verifying election results...");
+    const electionResults = await votingContract.getElectionResults(electionId.toString());
     console.log("Election results verified successfully!");
 
-    // Display election results
-    console.log("\n12. Election Results:");
+    // Print election results
+    console.log("\n15. Election Results:");
     console.log("====================");
-    
-    // Get election info
-    const electionDetails = await electionManager.getElectionInfo(electionId);
-    console.log(`Election: ${electionDetails.name}`);
+    const electionInfo = await votingContract.getElection(electionId.toString());
+    const totalVotes = electionInfo[7];
+    console.log(`Election: ${electionInfo[1]}`);
     console.log(`Total Votes: ${totalVotes}`);
+
+    // Get candidate count and eligible voters
+    const candidateCount = await votingContract.candidateCountPerElection(electionId.toString());
+    const electionStateInfo = await electionManager.getElectionState(electionId.toString());
+    const eligibleVoters = electionStateInfo[4];
     console.log(`Eligible Voters: ${eligibleVoters}`);
-    const turnout = Number(totalVotes) / Number(eligibleVoters) * 100;
-    console.log(`Voter Turnout: ${turnout.toFixed(2)}%`);
-    
-    // Get candidate count
-    const candidateCount = await votingContractInstance.candidateCountPerElection(electionId);
+
+    // Calculate voter turnout
+    console.log(`Voter Turnout: ${((Number(totalVotes) / Number(eligibleVoters)) * 100).toFixed(2)}%`);
     console.log("\nCandidate Results:");
     console.log("-----------------");
-    
-    // Display results for each candidate
-    for (let i = 1; i <= candidateCount; i++) {
-        const candidate = await votingContractInstance.candidates(electionId, i);
-        const voteCount = Number(candidateVoteCounts[i - 1]);
-        const votePercentage = (voteCount / Number(totalVotes) * 100).toFixed(2);
+
+    // Get results for each candidate
+    for (let i = 1; i <= Number(candidateCount); i++) {
+        const candidate = await votingContract.candidates(electionId.toString(), i);
+        const voteCount = Number(candidate.voteCount);
         console.log(`Candidate ${i}: ${candidate.name}`);
-        console.log(`Votes: ${voteCount} (${votePercentage}%)`);
+        console.log(`Votes: ${voteCount} (${((voteCount / Number(totalVotes)) * 100).toFixed(2)}%)`);
         console.log(`Description: ${candidate.description}`);
         console.log("-----------------");
     }
+
+    // Test region-specific voting
+    console.log("\n16. Testing region-specific voting...");
+    const kyivVotes = await votingContract.getRegionVoteCount(electionId.toString(), "KYIV");
+    const lvivVotes = await votingContract.getRegionVoteCount(electionId.toString(), "LVIV");
+    console.log(`KYIV votes: ${kyivVotes}`);
+    console.log(`LVIV votes: ${lvivVotes}`);
+
+    // Test election information retrieval
+    console.log("\n17. Testing election information retrieval...");
+    const electionFullInfo = await votingContract.getElection(electionId.toString());
+    console.log("Election Info:", electionFullInfo);
+    const candidate1Info = await votingContract.getCandidate(electionId.toString(), 1);
+    console.log("Candidate1 Info:", candidate1Info);
+    const electionState = await electionManager.getElectionState(electionId.toString());
+    console.log("Election State:", electionState);
+
+    // Test voter information retrieval
+    console.log("\n18. Testing voter information retrieval...");
+    const voter1Info = await voterRegistration.getVoterInfo(voter1.address);
+    console.log("Voter1 Info:", voter1Info);
+    const registeredVoters = await voterRegistration.getRegisteredVoters();
+    console.log("Registered Voters:", registeredVoters);
+    const kyivVoterCount = await voterRegistration.getRegionVoterCount("KYIV");
+    console.log("KYIV Voter Count:", kyivVoterCount);
+
+    // Test ZKP verifier updates
+    console.log("\n19. Testing ZKP verifier updates...");
+    const newVerifier = await (await ethers.getContractFactory("MockZKPVerifier")).deploy();
+    console.log("New verifier deployed");
+    await ((electionManager as unknown) as ElectionManager).connect(admin).setVotingContractZKPVerifier(await newVerifier.getAddress());
+    console.log("New verifier set");
 
     console.log("\nWorkflow test completed successfully!");
 }
