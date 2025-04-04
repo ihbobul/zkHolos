@@ -1,38 +1,63 @@
-import { IPFSService } from '../src/services/IPFSService';
+import { create } from 'kubo-rpc-client';
 
-async function testIPFSService() {
-    try {
-        const ipfsService = IPFSService.getInstance();
-        
-        // Check if IPFS node is available
-        const isAvailable = await ipfsService.isNodeAvailable();
-        console.log('IPFS node available:', isAvailable);
-        
-        if (!isAvailable) {
-            console.error('IPFS node is not available. Please make sure the IPFS daemon is running.');
-            return;
-        }
+async function main() {
+  try {
+    // Create IPFS client
+    const ipfs = create({ url: 'http://127.0.0.1:5001' });
 
-        // Test data
-        const testData = 'Hello, IPFS! This is a test message.';
-        
-        // Upload test data
-        console.log('Uploading test data...');
-        const hash = await ipfsService.upload(testData);
-        console.log('Upload successful! Hash:', hash);
-        
-        // Retrieve test data
-        console.log('Retrieving test data...');
-        const retrievedData = await ipfsService.retrieve(hash);
-        console.log('Retrieved data:', retrievedData);
-        
-        // Verify data matches
-        console.log('Data verification:', testData === retrievedData ? 'SUCCESS' : 'FAILED');
-        
-    } catch (error) {
-        console.error('Test failed:', error);
+    // Test data
+    const testData = {
+      title: "Test Election",
+      description: "This is a test election",
+      candidates: [
+        { id: 1, name: "Candidate 1", description: "First candidate" },
+        { id: 2, name: "Candidate 2", description: "Second candidate" }
+      ],
+      additionalDetails: {
+        organizerInfo: "Test Organization",
+        rules: "Test Rules",
+        requirements: "Test Requirements"
+      },
+      metadata: {
+        createdAt: new Date().toISOString(),
+        version: "1.0.0"
+      }
+    };
+
+    console.log('\nStoring test data in IPFS...');
+    console.log('Data:', JSON.stringify(testData, null, 2));
+
+    // Store data
+    const buffer = Buffer.from(JSON.stringify(testData));
+    const result = await ipfs.add(buffer);
+    console.log('\nIPFS Hash:', result.path);
+
+    // Pin the data
+    await ipfs.pin.add(result.path);
+    console.log('Data pinned successfully');
+
+    // Retrieve and verify data
+    console.log('\nRetrieving data from IPFS...');
+    const chunks = [];
+    for await (const chunk of ipfs.cat(result.path)) {
+      chunks.push(chunk);
     }
+    const retrievedData = Buffer.concat(chunks).toString();
+    console.log('Retrieved data:', retrievedData);
+
+    // Verify data integrity
+    const parsedData = JSON.parse(retrievedData);
+    if (JSON.stringify(parsedData) === JSON.stringify(testData)) {
+      console.log('\n✅ Data verification successful!');
+    } else {
+      console.log('\n❌ Data verification failed!');
+      console.log('Original:', testData);
+      console.log('Retrieved:', parsedData);
+    }
+
+  } catch (error) {
+    console.error('\n❌ Error:', error);
+  }
 }
 
-// Run the test
-testIPFSService(); 
+main(); 

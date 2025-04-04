@@ -1,5 +1,11 @@
 import { ethers } from 'ethers';
 
+// Contract addresses from environment variables
+export const VOTING_CONTRACT_ADDRESS = import.meta.env.VITE_VOTING_CONTRACT_ADDRESS;
+export const ELECTION_MANAGER_ADDRESS = import.meta.env.VITE_ELECTION_MANAGER_ADDRESS;
+export const VOTER_REGISTRATION_ADDRESS = import.meta.env.VITE_VOTER_REGISTRATION_ADDRESS;
+export const MOCK_ZKP_VERIFIER_ADDRESS = import.meta.env.VITE_MOCK_ZKP_VERIFIER_ADDRESS;
+
 // Contract ABIs
 export const ELECTION_MANAGER_ABI = [
   'function createElection(string memory title, string memory description, uint256 startTime, uint256 endTime, string[] memory regions, tuple(uint256 id, string name, string description, uint256 voteCount, bool isActive)[] memory candidates, string memory ipfsHash) public returns (uint256)',
@@ -21,7 +27,76 @@ export const VOTING_CONTRACT_ABI = [
   'event ElectionCreated(uint256 indexed electionId, string title, uint256 startTime, uint256 endTime)',
   'event ElectionStarted(uint256 indexed electionId)',
   'event VoteCast(uint256 indexed electionId, uint256 indexed candidateId, string region)',
-  'event ElectionCompleted(uint256 indexed electionId)'
+  'event ElectionCompleted(uint256 indexed electionId)',
+  {
+    "inputs": [],
+    "name": "getElectionsLength",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "electionId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getElection",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "description",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "startTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "string[]",
+            "name": "regions",
+            "type": "string[]"
+          },
+          {
+            "internalType": "bool",
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "internalType": "string",
+            "name": "ipfsHash",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct VotingContract.Election",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
 ];
 
 export const VOTER_REGISTRATION_ABI = [

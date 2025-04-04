@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
-import { useWeb3 } from '../contexts/Web3Context';
-import { uploadToIPFS, pinToIPFS, IPFSElectionData } from '../utils/ipfs';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from './ui/card';
 import { Button } from './ui/button';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { AlertCircle } from 'lucide-react';
 import { validateElectionTiming } from '../lib/utils';
+import { electionService } from '../services/ElectionService';
 
 interface CreateElectionProps {
   onSuccess?: (electionId: number) => void;
@@ -34,27 +33,40 @@ export function CreateElection({ onSuccess }: CreateElectionProps) {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { signedContracts, isConnected, connect, isLoading: web3Loading, error: web3Error } = useWeb3();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!signedContracts) return;
 
     try {
       setLoading(true);
       setError(null);
 
-      // Convert times to Unix timestamps
-      const startTime = Math.floor(new Date(formData.startTime).getTime() / 1000);
-      const endTime = Math.floor(new Date(formData.endTime).getTime() / 1000);
-
       // Validate timing
-      if (!validateElectionTiming(startTime, endTime)) {
+      const startTime = new Date(formData.startTime).getTime();
+      const endTime = new Date(formData.endTime).getTime();
+      
+      if (!validateElectionTiming(Math.floor(startTime / 1000), Math.floor(endTime / 1000))) {
         throw new Error('Invalid election timing. Start time must be in the future and end time must be at least 1 hour after start time.');
       }
 
-      // Prepare IPFS data
-      const ipfsData: IPFSElectionData = {
+      // Filter out empty regions
+      const regions = formData.regions.filter(region => region.trim() !== '');
+      if (regions.length === 0) {
+        throw new Error('At least one region is required');
+      }
+
+      // Validate candidates
+      if (formData.candidates.some(c => !c.name.trim() || !c.description.trim())) {
+        throw new Error('All candidates must have a name and description');
+      }
+
+      // Create election using the service
+      await electionService.createElection({
+        title: formData.title,
+        description: formData.description,
+        startTime,
+        endTime,
+        regions,
         candidates: formData.candidates.map((candidate, index) => ({
           id: index + 1,
           name: candidate.name,
@@ -62,39 +74,8 @@ export function CreateElection({ onSuccess }: CreateElectionProps) {
           voteCount: 0,
           isActive: true
         })),
-        additionalDetails: {
-          organizerInfo: 'Created via zkHolos platform',
-          rules: 'One vote per registered voter',
-          requirements: 'Must be a registered voter'
-        }
-      };
-
-      // Upload to IPFS
-      const ipfsHash = await uploadToIPFS(ipfsData);
-      
-      // Pin the content to ensure persistence
-      await pinToIPFS(ipfsHash);
-
-      // Create election on-chain
-      const tx = await signedContracts.electionManager.createElection(
-        formData.title,
-        formData.description,
-        startTime,
-        endTime,
-        formData.regions.filter(region => region.trim() !== ''),
-        ipfsData.candidates,
-        ipfsHash
-      );
-
-      const receipt = await tx.wait();
-      
-      // Find the election ID from the event logs
-      const event = receipt.events?.find(e => e.event === 'ElectionCreated');
-      const electionId = event?.args?.electionId;
-
-      if (electionId && onSuccess) {
-        onSuccess(electionId.toNumber());
-      }
+        ipfsHash: '' // This will be handled by the service
+      });
 
       // Reset form
       setFormData({
@@ -105,9 +86,13 @@ export function CreateElection({ onSuccess }: CreateElectionProps) {
         regions: [''],
         candidates: [{ name: '', description: '' }]
       });
-    } catch (error: any) {
-      console.error('Error creating election:', error);
-      setError(error.message || 'Failed to create election');
+
+      if (onSuccess) {
+        onSuccess(0); // Just pass 0 since we don't need the exact ID
+      }
+    } catch (err) {
+      console.error('Error creating election:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create election');
     } finally {
       setLoading(false);
     }
@@ -157,28 +142,6 @@ export function CreateElection({ onSuccess }: CreateElectionProps) {
     }));
   };
 
-  if (!isConnected) {
-    return (
-      <div className="text-center p-8">
-        <h2 className="text-2xl font-bold mb-4">Connect Your Wallet</h2>
-        <p className="mb-4">Please connect your wallet to create an election.</p>
-        <Button 
-          onClick={connect} 
-          disabled={web3Loading}
-        >
-          {web3Loading ? 'Connecting...' : 'Connect Wallet'}
-        </Button>
-        {web3Error && (
-          <Alert variant="destructive" className="mt-4">
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>Connection Error</AlertTitle>
-            <AlertDescription>{web3Error}</AlertDescription>
-          </Alert>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className="max-w-4xl mx-auto p-4">
       <Card>
@@ -188,11 +151,11 @@ export function CreateElection({ onSuccess }: CreateElectionProps) {
         </CardHeader>
         <form onSubmit={handleSubmit}>
           <CardContent className="space-y-4">
-            {(error || web3Error) && (
+            {error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{error || web3Error}</AlertDescription>
+                <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
