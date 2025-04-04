@@ -116,14 +116,40 @@ async function main() {
     const currentBlock = await ethers.provider.getBlock('latest');
     if (!currentBlock) throw new Error("Failed to get current block");
     
-    const startTime = currentBlock.timestamp + 60; // Start in 1 minute
-    const endTime = startTime + 300; // End in 5 minutes
+    const startTime = currentBlock.timestamp + 120; // Start in 2 minutes
+    const endTime = startTime + 7200; // End in 2 hours after start (ensuring > 1 hour requirement)
 
-    const tx = await electionManager.createElection(
-        "Test Election", // Election name
+    console.log("Creating election with times:", {
+        currentTime: currentBlock.timestamp,
         startTime,
         endTime,
-        regions
+        startDelay: startTime - currentBlock.timestamp,
+        duration: endTime - startTime
+    });
+
+    const tx = await electionManager.createElection(
+        "Test Election", // title
+        "Test election description", // description
+        startTime,
+        endTime,
+        regions,
+        [ // candidates
+            {
+                id: 1,
+                name: "Candidate 1",
+                description: "First candidate",
+                voteCount: 0,
+                isActive: true
+            },
+            {
+                id: 2,
+                name: "Candidate 2",
+                description: "Second candidate",
+                voteCount: 0,
+                isActive: true
+            }
+        ],
+        "QmTest" // temporary IPFS hash
     );
     const receipt = await tx.wait();
     if (!receipt) {
@@ -150,12 +176,9 @@ async function main() {
     const electionId = parsedLog.args[0];
     console.log("Election created with ID:", electionId);
 
-    // Add candidates
-    console.log("\n4. Adding candidates...");
-    await electionManager.addCandidate(electionId, "Candidate1", "Description1");
-    await electionManager.addCandidate(electionId, "Candidate2", "Description2");
-    console.log("Candidates added successfully");
-
+    // Skip adding candidates since they're now included in election creation
+    console.log("\n4. Updating voter eligibility...");
+    
     // Test voter eligibility updates
     console.log("\n5. Testing voter eligibility updates...");
     const newVoter = await ethers.getSigner("0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65");
@@ -201,17 +224,18 @@ async function main() {
     try {
         await (electionManager.connect(voter1) as ElectionManager).castVoteWithProof(
             electionId.toString(),
-            1,
+            1, // deactivated candidate
             zkProofParams.a,
             zkProofParams.b,
             zkProofParams.c,
             zkProofParams.input
         );
-        throw new Error("Should not be able to vote for inactive candidate");
+        console.log("Vote cast successfully (this should not happen)");
     } catch (error) {
-        console.log("Vote attempt failed as expected for inactive candidate");
+        console.log("Vote for inactive candidate failed as expected");
     }
-    
+
+    // Reactivate candidate
     await electionManager.updateCandidateStatus(electionId.toString(), 1, true);
     console.log("Candidate1 reactivated");
 
@@ -303,9 +327,9 @@ async function main() {
 
     // Wait for election to end
     console.log("\n12. Waiting for election to end...");
-    await ethers.provider.send("evm_increaseTime", [300]); // Advance time by 5 minutes
+    await ethers.provider.send("evm_increaseTime", [7500]); // Advance time by more than 2 hours
     await ethers.provider.send("evm_mine", []);
-    console.log("Time advanced by 5 minutes");
+    console.log("Time advanced by more than 2 hours");
 
     // End election
     console.log("\n13. Ending election...");

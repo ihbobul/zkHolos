@@ -11,18 +11,32 @@
     "circuits:setup": "ts-node scripts/circuits/setupCircuit.ts setup",
     "circuits:generate-proof": "ts-node scripts/circuits/generateProof.ts",
     "circuits:verify-proof": "ts-node scripts/circuits/verifyProof.ts",
-    "circuits:setup-all": "npm run circuits:compile && npm run circuits:pot && npm run circuits:setup"
+    "circuits:setup-all": "npm run circuits:compile && npm run circuits:pot && npm run circuits:setup",
+    "ipfs:start": "ipfs daemon",
+    "ipfs:init": "ipfs init",
+    "ipfs:test": "ts-node scripts/test-ipfs.ts",
+    "ipfs:test-voting": "ts-node scripts/test-voting-ipfs.ts",
+    "listener:start": "ts-node scripts/start-contract-listener.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@types/form-data": "^2.2.1",
+    "@types/node-fetch": "^2.6.12",
+    "@types/react": "^19.1.0",
+    "dotenv": "^16.4.5",
+    "form-data": "^4.0.2",
+    "kubo-rpc-client": "^3.0.1",
+    "node-fetch": "^2.7.0",
+    "react": "^19.1.0",
     "snarkjs": "^0.7.0"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@openzeppelin/contracts": "^4.9.3",
     "@types/chai": "^4.3.11",
+    "@types/dotenv": "^8.2.0",
     "@types/jest": "^29.5.14",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.0",

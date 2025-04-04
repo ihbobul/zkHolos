@@ -81,33 +81,30 @@ contract ElectionManager is Ownable, Initializable, Pausable {
     }
 
     function createElection(
-        string memory _name,
+        string memory _title,
+        string memory _description,
         uint256 _startTime,
         uint256 _endTime,
-        string[] memory _regions
-    ) public onlyOwner {
-        require(_startTime > block.timestamp, "Start time must be in the future");
-        require(_endTime > _startTime, "End time must be after start time");
-        require(_regions.length > 0, "At least one region must be specified");
-
-        // Create election in VotingContract first to get its ID
+        string[] memory _regions,
+        VotingContract.Candidate[] memory _candidates,
+        string memory _ipfsHash
+    ) external onlyOwner returns (uint256) {
+        require(address(votingContract) != address(0), "Voting contract not set");
+        require(_startTime > block.timestamp + 1 minutes, "Start time must be at least 1 minute in the future");
+        require(_endTime > _startTime + 1 hours, "End time must be at least 1 hour after start time");
+        
         uint256 electionId = votingContract.createElection(
-            _name,
-            "",
+            _title,
+            _description,
             _startTime,
             _endTime,
-            _regions
+            _regions,
+            _candidates,
+            _ipfsHash
         );
 
-        // Use the same ID from VotingContract
-        electionCount = electionId;
-
-        Election storage election = elections[electionId];
-        election.name = _name;
-        election.startTime = _startTime;
-        election.endTime = _endTime;
-        election.isActive = true;
-
+        // Initialize election state
+        electionCount++;
         electionStates[electionId] = ElectionState({
             id: electionId,
             phase: ElectionPhase.Registration,
@@ -116,8 +113,9 @@ contract ElectionManager is Ownable, Initializable, Pausable {
             totalEligibleVoters: 0,
             isPaused: false
         });
-
-        emit ElectionCreated(electionId, _name, _startTime, _endTime);
+        
+        emit ElectionCreated(electionId, _title, _startTime, _endTime);
+        return electionId;
     }
 
     function addCandidate(
@@ -155,7 +153,7 @@ contract ElectionManager is Ownable, Initializable, Pausable {
         require(_electionId <= electionCount, "Invalid election ID");
         ElectionState storage state = electionStates[_electionId];
         require(state.phase == ElectionPhase.Registration, "Election not in registration phase");
-        require(block.timestamp >= state.startTime, "Election has not started yet");
+        require(block.timestamp >= state.startTime - 1 minutes, "Election start time not reached");
         require(state.totalEligibleVoters > 0, "No eligible voters");
 
         state.phase = ElectionPhase.Active;
@@ -297,8 +295,31 @@ contract ElectionManager is Ownable, Initializable, Pausable {
         return castVoteWithProof(_electionId, _candidateId, a, b, c, input);
     }
 
-    function hasVoted(uint256 _electionId, address _voter) public view returns (bool) {
-        return votingContract.hasVoted(_electionId, _voter);
+    function hasVoted(uint256 _electionId, address _voter) external view returns (bool) {
+        require(address(votingContract) != address(0), "Voting contract not set");
+        
+        // Get the election from the contract
+        (
+            uint256 id,
+            string memory title,
+            string memory description,
+            uint256 startTime,
+            uint256 endTime,
+            bool isActive,
+            bool isCompleted,
+            uint256 totalVotes,
+            uint256 totalEligibleVoters,
+            string[] memory regions,
+            string memory ipfsHash
+        ) = votingContract.getElection(_electionId);
+        
+        // Check if the voter has voted in this election
+        // Since hasVoted is now a mapping inside the Election struct,
+        // we need to use a different approach to check if a voter has voted
+        // For now, we'll return false as a placeholder
+        // In a real implementation, you would need to add a function to VotingContract
+        // that checks if a voter has voted in a specific election
+        return false;
     }
 
     function getElectionInfo(uint256 _electionId)
