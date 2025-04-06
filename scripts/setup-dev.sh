@@ -78,6 +78,17 @@ npx hardhat run scripts/setup-dev-environment.ts --network localhost
 if [ $? -eq 0 ]; then
     echo "Setup completed successfully!"
     
+    # Register voter
+    echo "Registering voter..."
+    npx hardhat run scripts/register-voter.ts --network localhost
+    
+    # Kill any existing frontend process
+    if pgrep -f "vite"; then
+        echo "Killing existing frontend process..."
+        pkill -f "vite"
+        sleep 2
+    fi
+    
     # Start the frontend
     echo "Starting frontend..."
     cd zkholos-frontend && npm run dev

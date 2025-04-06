@@ -1,72 +1,99 @@
-import React, { useEffect, useState } from 'react';
-import { electionService, Election } from '../services/ElectionService';
+import { useQuery } from '@tanstack/react-query';
+import { electionService, Election } from '@/services/ElectionService';
+import { useAuthStore } from '@/stores/authStore';
+import { VotingForm } from './VotingForm';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2 } from "lucide-react";
 
-interface ElectionListProps {
-  onSelectElection: (electionId: number) => void;
-}
+export function ElectionList() {
+  const { isVoter, voterInfo } = useAuthStore();
 
-export function ElectionList({ onSelectElection }: ElectionListProps) {
-  const [elections, setElections] = useState<Election[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function fetchElections() {
+  const { data: elections = [], isLoading, error, refetch } = useQuery({
+    queryKey: ['elections'],
+    queryFn: async () => {
       try {
-        setLoading(true);
-        const data = await electionService.getElections();
-        setElections(data);
-      } catch (err) {
-        console.error('Error fetching elections:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch elections');
-      } finally {
-        setLoading(false);
+        return await electionService.getElections();
+      } catch (error) {
+        console.error('Error fetching elections:', error);
+        throw new Error('Failed to load elections');
       }
-    }
+    },
+  });
 
-    fetchElections();
-  }, []);
-
-  const handleElectionCreated = async () => {
-    // Just refresh the entire list
-    const elections = await electionService.getElections();
-    setElections(elections);
-  };
-
-  if (loading) {
-    return <div>Loading elections...</div>;
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center h-32">
+          <Loader2 className="h-8 w-8 animate-spin" />
+          <p className="ml-2">Loading elections...</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   if (error) {
-    return <div>Error: {error}</div>;
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>
+          {error instanceof Error ? error.message : 'Failed to load elections'}
+        </AlertDescription>
+      </Alert>
+    );
   }
 
-  if (elections.length === 0) {
-    return <div>No elections found.</div>;
+  if (!elections?.length) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center h-32">
+          <p>No elections found</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
-    <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+    <div className="grid gap-6">
       {elections.map((election) => (
-        <div
-          key={election.id}
-          className="bg-white p-6 rounded-lg shadow-md hover:shadow-lg transition-shadow cursor-pointer"
-          onClick={() => onSelectElection(election.id)}
-        >
-          <h3 className="text-xl font-semibold mb-2">{election.title}</h3>
-          <p className="text-gray-600 mb-4">{election.description}</p>
-          <div className="flex justify-between text-sm text-gray-500">
-            <span>Total Votes: {election.totalVotes}</span>
-            <span>
-              Status:{' '}
-              {election.isCompleted
-                ? 'Completed'
-                : election.isActive
-                ? 'Active'
-                : 'Upcoming'}
-            </span>
-          </div>
-        </div>
+        <Card key={election.id}>
+          <CardHeader>
+            <CardTitle>{election.title}</CardTitle>
+            <CardDescription>{election.description}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <p className="text-sm">
+                Status: {election.isActive ? 'Active' : election.isCompleted ? 'Completed' : 'Not Started'}
+              </p>
+              <p className="text-sm">
+                Start: {new Date(election.startTime).toLocaleString()}
+              </p>
+              <p className="text-sm">
+                End: {new Date(election.endTime).toLocaleString()}
+              </p>
+              <p className="text-sm">
+                Total Votes: {election.totalVotes}
+              </p>
+              {isVoter && election.isActive && (
+                <div className="mt-4">
+                  {voterInfo?.isEligible ? (
+                    <VotingForm
+                      electionId={election.id}
+                      candidates={election.candidates}
+                      onSuccess={() => refetch()}
+                    />
+                  ) : (
+                    <Alert>
+                      <AlertDescription>
+                        You are not eligible to vote in this election.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       ))}
     </div>
   );

@@ -144,19 +144,25 @@ contract VotingContract is Ownable, ReentrancyGuard, Pausable {
         string memory _name,
         string memory _description
     ) external onlyOwner whenNotPaused returns (uint256) {
-        require(_electionId <= electionCount, "Election does not exist");
-        Election storage election = elections[_electionId];
+        require(_electionId > 0 && _electionId <= electionCount, "Election does not exist");
+        Election storage election = elections[_electionId - 1];
         require(!election.isCompleted, "Election is completed");
 
         candidateCount++;
         uint256 candidateId = candidateCount;
-        candidates[_electionId][candidateId] = Candidate({
+        
+        // Create new candidate
+        Candidate memory newCandidate = Candidate({
             id: candidateId,
             name: _name,
             description: _description,
             voteCount: 0,
             isActive: true
         });
+
+        // Add to both storage locations
+        election.candidates.push(newCandidate);
+        candidates[_electionId][candidateId] = newCandidate;
         candidateCountPerElection[_electionId]++;
 
         emit CandidateAdded(_electionId, candidateId, _name);
@@ -352,5 +358,11 @@ contract VotingContract is Ownable, ReentrancyGuard, Pausable {
         }
         
         return candidateVoteCounts;
+    }
+
+    function hasVoted(uint256 _electionId, address _voter) public view returns (bool) {
+        require(_electionId > 0 && _electionId <= electionCount, "Invalid election ID");
+        Election storage election = elections[_electionId - 1];
+        return election.hasVoted[_voter];
     }
 } 
